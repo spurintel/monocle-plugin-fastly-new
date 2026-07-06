@@ -13,6 +13,6 @@
 		"@fastly/cli": "^15.3.1",
 		"@fastly/js-compute": "^3.42.1",
 		"esbuild": "^0.25.0",
-		"vitest": "~3.1.0"
+		"vitest": "^3.2.7"
 	}
 }
