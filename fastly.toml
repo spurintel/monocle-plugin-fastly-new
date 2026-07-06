@@ -30,7 +30,6 @@ authors = ["engineering@spur.us"]
       format = "inline-toml"
     [local_server.config_stores.monocle_config.contents]
       PUBLISHABLE_KEY = "test_publishable_key"
-      USE_POLICY_API = "true"
       # BLOCK_RESPONSE_TYPE = "html"
       # BLOCK_PAGE_TITLE = "Access Denied"
       # BLOCK_RESPONSE_BODY = "This request has been blocked"

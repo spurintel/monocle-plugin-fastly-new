@@ -1,7 +1,5 @@
 export const COOKIE_NAME = 'MCLVALID';
 
-export const DEFAULT_EXEMPTED_SERVICES = ['WARP_VPN', 'ICLOUD_RELAY_PROXY'];
-
 // Names of the statically defined backends on the Monocle Compute service.
 // The customer's origin/service is the ORIGIN backend; the Monocle Policy API
 // is reached via the POLICY backend. Both must exist on the service version

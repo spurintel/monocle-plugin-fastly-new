@@ -69,7 +69,7 @@ async function proxyToOrigin(request: Request): Promise<Response> {
 	} catch (error: unknown) {
 		const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 		console.error(`Origin proxy failed: ${message}`);
-		return new Response(`Origin proxy failed: ${message}`, { status: 502 });
+		return new Response('Bad Gateway', { status: 502 });
 	}
 }
 

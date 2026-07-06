@@ -12,8 +12,6 @@ export interface MonocleConfig {
 	publishableKey: string;
 	secretKey: string;
 	cookieSecretValue: string;
-	usePolicyApi: boolean;
-	exemptedServices?: string;
 	blockResponseType?: string;
 	blockRedirectUrl?: string;
 	blockStatusCode?: string;
@@ -42,8 +40,6 @@ export async function loadConfig(): Promise<MonocleConfig> {
 
 	return {
 		publishableKey: config.get('PUBLISHABLE_KEY') ?? '',
-		usePolicyApi: config.get('USE_POLICY_API') === 'true',
-		exemptedServices: optional(config, 'EXEMPTED_SERVICES'),
 		blockResponseType: optional(config, 'BLOCK_RESPONSE_TYPE'),
 		blockRedirectUrl: optional(config, 'BLOCK_REDIRECT_URL'),
 		blockStatusCode: optional(config, 'BLOCK_STATUS_CODE'),
