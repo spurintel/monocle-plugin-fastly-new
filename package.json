@@ -1,0 +1,18 @@
+{
+	"name": "monocle-plugin-fastly",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"bundle": "esbuild src/index.ts --bundle --format=esm --target=es2022 --outfile=bin/index.js --loader:.html=text --external:fastly:*",
+		"build": "npm run bundle && js-compute-runtime bin/index.js bin/main.wasm",
+		"serve": "npm run bundle && fastly compute serve --file bin/index.js",
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"@fastly/cli": "^15.3.1",
+		"@fastly/js-compute": "^3.42.1",
+		"esbuild": "^0.25.0",
+		"vitest": "~3.1.0"
+	}
+}

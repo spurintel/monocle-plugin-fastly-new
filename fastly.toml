@@ -1,0 +1,44 @@
+# Metadata required by the Fastly CLI to build and deploy the Compute package.
+# See https://www.fastly.com/documentation/reference/compute/fastly-toml/
+manifest_version = 3
+name = "monocle-plugin-fastly"
+language = "javascript"
+description = "Monocle edge assessment + policy blocking for Fastly Compute"
+authors = ["engineering@spur.us"]
+
+[scripts]
+  build = "npm run build"
+
+# Local-server (Viceroy) configuration used by `fastly compute serve` to
+# simulate the Fastly platform for the PoC. Production values are provisioned
+# by the web app via the Fastly API (backends + resource-linked stores).
+[local_server]
+  [local_server.backends]
+    [local_server.backends.origin]
+      # Stand-in origin for local testing. In production this targets the
+      # customer's existing Fastly service / origin.
+      url = "https://example.com"
+      # Local-only: rewrite the loopback Host to the test origin's host. In
+      # production the inbound request already carries the customer's domain.
+      override_host = "example.com"
+    [local_server.backends.monocle_policy]
+      # The Monocle Policy API host (note the `decrypt.` prefix).
+      url = "https://decrypt.mcl.spur.us"
+
+  [local_server.config_stores]
+    [local_server.config_stores.monocle_config]
+      format = "inline-toml"
+    [local_server.config_stores.monocle_config.contents]
+      PUBLISHABLE_KEY = "test_publishable_key"
+      USE_POLICY_API = "true"
+      # BLOCK_RESPONSE_TYPE = "html"
+      # BLOCK_PAGE_TITLE = "Access Denied"
+      # BLOCK_RESPONSE_BODY = "This request has been blocked"
+
+  [local_server.secret_stores]
+    [[local_server.secret_stores.monocle_secrets]]
+      key = "SECRET_KEY"
+      data = "test_secret_key"
+    [[local_server.secret_stores.monocle_secrets]]
+      key = "COOKIE_SECRET_VALUE"
+      data = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
