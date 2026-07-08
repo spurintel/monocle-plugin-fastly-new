@@ -54,7 +54,15 @@ async function handleRequest(event: FetchEvent): Promise<Response> {
 		captcha
 			.replace('PUBLISHABLE_KEY', config.publishableKey)
 			.replaceAll('REPLACE_REDIRECT', JSON.stringify(url.href)),
-		{ headers: { 'Content-Type': 'text/html' } }
+		{
+			headers: {
+				'Content-Type': 'text/html',
+				// The challenge is per-request and security-sensitive: never let a
+				// browser or intermediary cache and re-serve a stale interstitial.
+				'Cache-Control': 'no-store, no-cache, must-revalidate',
+				Pragma: 'no-cache',
+			},
+		}
 	);
 }
 
