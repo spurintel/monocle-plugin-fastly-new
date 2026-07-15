@@ -6,7 +6,7 @@
 	"scripts": {
 		"bundle": "esbuild src/index.ts --bundle --format=esm --target=es2022 --outfile=bin/index.js --loader:.html=text --external:fastly:*",
 		"build": "npm run bundle && js-compute-runtime bin/index.js bin/main.wasm",
-		"serve": "npm run bundle && fastly compute serve --file bin/index.js",
+		"serve": "fastly compute serve",
 		"test": "vitest run"
 	},
 	"devDependencies": {

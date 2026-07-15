@@ -58,4 +58,18 @@ describe('isProtectedPath', () => {
 		expect(isProtectedPath('www.example.com', '/blog', undefined)).toBe(true);
 		expect(isProtectedPath('other.example.com', '/blog', paths)).toBe(true);
 	});
+
+	it('cannot be evaded by re-casing or percent-encoding the path', () => {
+		// Origins that canonicalise case or decode %61->a would serve the same
+		// protected resource, so the challenge must still apply.
+		expect(isProtectedPath('www.example.com', '/LOGIN', paths)).toBe(true);
+		expect(isProtectedPath('www.example.com', '/%6cogin', paths)).toBe(true);
+		expect(isProtectedPath('www.example.com', '/checkout/%70ay', paths)).toBe(true);
+	});
+
+	it('matches case-insensitively when the configured pattern is upper-cased', () => {
+		expect(isProtectedPath('www.example.com', '/admin/x', { 'www.example.com': ['/ADMIN/*'] })).toBe(
+			true,
+		);
+	});
 });

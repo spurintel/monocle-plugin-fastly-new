@@ -1,9 +1,6 @@
 import { COOKIE_NAME } from './constants';
 import type { MonocleConfig } from './config';
 
-/**
- * Parses a cookie header string into a record of cookie name-value pairs.
- */
 export function parseCookies(header: string | null): Record<string, string> {
 	const list: Record<string, string> = {};
 	if (!header) return list;
@@ -50,7 +47,7 @@ export async function setSecureCookie(clientIp: string | null, config: MonocleCo
 	if (!clientIp) {
 		console.error('No client IP available on the request context; issuing an IP-unbound cookie.');
 	}
-	const expiryTime = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+	const expiryTime = Math.floor(Date.now() / 1000) + 3600;
 	const payload = `${clientIp ?? ''}|${expiryTime}`;
 
 	const key = await importHmacKey(await config.getCookieSecret());

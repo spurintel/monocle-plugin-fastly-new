@@ -4,6 +4,7 @@ import { buildChainAuthHeader } from './chainAuth';
 import { CHAIN_AUTH_HEADER, CHAIN_SECRET_HEADER, COOKIE_NAME, ORIGIN_BACKEND, POLICY_BACKEND } from './constants';
 import { loadConfig, type CacheRule, type MonocleConfig } from './config';
 import { parseCookies, validateCookie, setSecureCookie } from './cookies';
+import { escapeHtml } from './escape';
 import { isProtectedPath } from './paths';
 import { evaluateAssessment, MonocleAPIError } from './policy';
 import captcha from './templates/captcha_page.html';
@@ -142,16 +143,17 @@ async function proxyToOrigin(
 			originRequest.headers.delete('Fastly-Client-IP');
 		}
 
-		// The chaining headers are Monocle's to assert, never the client's: always
-		// strip any inbound values so visitor-supplied headers can't flow through to
-		// the origin in simple mode, then set them when chaining to prove to the
+		// The chaining header is Monocle's to assert, never the client's: always
+		// strip any inbound value (including the legacy static-secret header) so a
+		// visitor-supplied header can't flow through to the origin in simple mode,
+		// then set the time-limited signature when chaining to prove to the
 		// customer's existing service that this request came through Monocle.
-		// Current guards validate the time-limited signature; the static secret is
-		// still sent for guards pasted into Compute services before it existed.
+		// Only the signed header is sent: the guards Monocle generates validate it,
+		// and unlike the old static secret a captured value expires in minutes
+		// rather than allowing an indefinite replay.
 		originRequest.headers.delete(CHAIN_SECRET_HEADER);
 		originRequest.headers.delete(CHAIN_AUTH_HEADER);
 		if (config.chainSecret) {
-			originRequest.headers.set(CHAIN_SECRET_HEADER, config.chainSecret);
 			originRequest.headers.set(CHAIN_AUTH_HEADER, await buildChainAuthHeader(config.chainSecret));
 		}
 		const cacheOverride = cacheOverrideFor(url.pathname, config.cacheRules);
@@ -219,23 +221,6 @@ async function validateWithPolicyApi(
 			return new Response('Captcha validated successfully', { status: 200 });
 		}
 	}
-}
-
-/**
- * Encodes the five HTML-significant characters so customer-supplied block-page
- * text (title/body) is rendered as literal text, never parsed as markup. This is
- * the injection defence for the block page: the values arrive as arbitrary
- * strings and are interpolated into the HTML below, so they MUST be escaped here
- * at the sink. `&` is replaced first so the entities we introduce aren't
- * re-encoded.
- */
-function escapeHtml(value: string): string {
-	return value
-		.replace(/&/g, '&amp;')
-		.replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;')
-		.replace(/"/g, '&quot;')
-		.replace(/'/g, '&#39;');
 }
 
 /**

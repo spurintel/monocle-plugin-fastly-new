@@ -17,9 +17,10 @@ export const SECRET_STORE_NAME = 'monocle_secrets';
 // SDK targets `https://decrypt.<baseDomain>/api/v1/policy`.
 export const POLICY_API_URL = 'https://decrypt.mcl.spur.us/api/v1/policy';
 
-// Header carrying the chaining shared secret. Kept for guards pasted into
-// customer Compute services before the signed header below existed; those
-// still compare this static value, so it must keep being sent.
+// Legacy header that once carried the raw chaining secret. No longer SENT (a
+// static, never-expiring credential was a permanent replay risk); the plugin
+// only strips any inbound value under this name so a visitor can't spoof it.
+// Kept solely for that strip; the signed header below is the real proof.
 export const CHAIN_SECRET_HEADER = 'X-Monocle-Chain-Secret';
 
 // Header carrying the time-limited chaining signature:

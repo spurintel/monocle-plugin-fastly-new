@@ -33,9 +33,25 @@ export function matchesPathPattern(pathname: string, pattern: string): boolean {
 }
 
 /**
+ * Canonicalises a pathname for scoping: percent-decode once, then lower-case, so
+ * a request can't slip past a scoped pattern with `/%61dmin` or `/ADMIN` when the
+ * origin would canonicalise it back to a protected path. Best-effort: malformed
+ * encoding is matched as-is (still lower-cased) rather than throwing.
+ */
+function canonicalisePath(pathname: string): string {
+	try {
+		return decodeURIComponent(pathname).toLowerCase();
+	} catch {
+		return pathname.toLowerCase();
+	}
+}
+
+/**
  * Whether a request falls inside the protected path patterns for its host.
  * No configuration at all, or a host with no entry, fails SAFE (protected),
- * so a missing/corrupt config item can never silently disable Monocle.
+ * so a missing/corrupt config item can never silently disable Monocle. The path
+ * and patterns are matched case- and percent-encoding-insensitively so scoping
+ * can't be evaded by re-casing or encoding the URL.
  */
 export function isProtectedPath(
 	hostname: string,
@@ -45,5 +61,6 @@ export function isProtectedPath(
 	if (!protectedPaths) return true;
 	const patterns = protectedPaths[hostname.toLowerCase()];
 	if (!patterns) return true;
-	return patterns.some(pattern => matchesPathPattern(pathname, pattern));
+	const path = canonicalisePath(pathname);
+	return patterns.some(pattern => matchesPathPattern(path, pattern.toLowerCase()));
 }

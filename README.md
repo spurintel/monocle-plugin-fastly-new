@@ -32,6 +32,15 @@ Visitor ── valid MCLVALID cookie ─▶ fetch(origin backend) ─▶ origin
   rather than depending on `@spur.us/monocle-backend`, keeping the package small
   and free of Node/`jose` dependencies.
 - The client IP for the cookie binding comes from `event.client.address`.
+- **Path scoping and cookie validation happen in the handler, not Fastly's
+  routing layer.** Fastly's Request Routing (June 2026) can route paths on a
+  domain to different services, but its conditions only pattern-match header
+  values and cannot verify an HMAC, so any rule that routes on the `MCLVALID`
+  cookie is a trivial challenge bypass: `MCLVALID=<any value>` satisfies the
+  condition and reaches the origin unchallenged (confirmed by testing). Cookie
+  verification must stay in compute. Routing configs remain usable for pure
+  path scoping (cookie never influencing routing), but that forfeits their main
+  benefit, so scoping ships in the handler via `PROTECTED_PATHS`.
 
 ## Develop
 
