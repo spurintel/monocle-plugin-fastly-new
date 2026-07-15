@@ -18,7 +18,7 @@ export function parseCookies(header: string | null): Record<string, string> {
 }
 
 /**
- * The cookie payload (`<clientIp>|<expiryUnixSeconds>`) is not secret — it only
+ * The cookie payload (`<clientIp>|<expiryUnixSeconds>`) is not secret; it only
  * needs to be tamper-proof so a client cannot forge or extend it. We therefore
  * sign it with HMAC-SHA256 rather than encrypt it.
  *
@@ -40,15 +40,20 @@ async function importHmacKey(hexSecret: string): Promise<CryptoKey> {
 /**
  * Issues a signed cookie binding the client IP and a 1-hour expiry.
  * The client IP comes from the Compute request context (event.client.address).
+ *
+ * If no client IP is available (which should essentially never happen), the
+ * cookie is issued WITHOUT an IP binding rather than bound to a literal
+ * unmatchable value: a cookie that can never validate would trap that visitor
+ * in an endless challenge loop. The signature and expiry still apply.
  */
 export async function setSecureCookie(clientIp: string | null, config: MonocleConfig): Promise<Headers> {
 	if (!clientIp) {
-		console.log('ERROR: No client IP available on the request context.');
+		console.error('No client IP available on the request context; issuing an IP-unbound cookie.');
 	}
 	const expiryTime = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
-	const payload = `${clientIp}|${expiryTime}`;
+	const payload = `${clientIp ?? ''}|${expiryTime}`;
 
-	const key = await importHmacKey(config.cookieSecretValue);
+	const key = await importHmacKey(await config.getCookieSecret());
 	const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
 
 	const cookieValue = `${bufToHex(new TextEncoder().encode(payload))}.${bufToHex(new Uint8Array(signature))}`;
@@ -70,9 +75,6 @@ export async function validateCookie(
 	clientIp: string | null,
 	config: MonocleConfig
 ): Promise<boolean> {
-	if (!clientIp) {
-		console.log('ERROR: No client IP available on the request context.');
-	}
 	if (!cookieHeader) {
 		return false;
 	}
@@ -90,10 +92,13 @@ export async function validateCookie(
 	}
 
 	const payloadBytes = hexToBuf(payloadHex);
-	const key = await importHmacKey(config.cookieSecretValue);
 
+	// Key import and verify both run inside the try: a bad/empty cookie secret or
+	// malformed signature bytes must fail the cookie (re-challenge), never throw
+	// out of here and surface as a 500.
 	let valid: boolean;
 	try {
+		const key = await importHmacKey(await config.getCookieSecret());
 		valid = await crypto.subtle.verify('HMAC', key, hexToBuf(signatureHex), payloadBytes);
 	} catch (error) {
 		console.log(`Error verifying cookie signature: ${error}`);
@@ -105,7 +110,10 @@ export async function validateCookie(
 
 	const [clientIpAddress, expiryTime] = new TextDecoder().decode(payloadBytes).split('|');
 
-	if (clientIp !== clientIpAddress) {
+	// An empty stored IP means the cookie was issued without an IP binding (no
+	// client IP was available at issue time); skip the comparison rather than
+	// failing a cookie that could never match anything.
+	if (clientIpAddress !== '' && clientIp !== clientIpAddress) {
 		console.log(`Mismatch IP address. Expecting ${clientIpAddress}, Got ${clientIp}`);
 		return false;
 	}

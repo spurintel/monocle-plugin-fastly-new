@@ -43,4 +43,15 @@ describe('evaluateAssessment', () => {
 			MonocleAPIError
 		);
 	});
+
+	it('rejects a malformed 2xx body so the caller fails OPEN, not blocks', async () => {
+		// A 200 whose JSON lacks a boolean `allowed` must throw (routed through
+		// fail-open) rather than read `allowed: undefined` and hard-block the user.
+		for (const body of ['{}', '{"allowed":"yes"}', 'not json']) {
+			vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+			await expect(evaluateAssessment('X', 'k', 'monocle_policy')).rejects.toBeInstanceOf(
+				MonocleAPIError
+			);
+		}
+	});
 });

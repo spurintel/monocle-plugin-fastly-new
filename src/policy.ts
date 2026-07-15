@@ -46,5 +46,13 @@ export async function evaluateAssessment(
 		throw new MonocleAPIError(response.status, response.statusText);
 	}
 
-	return (await response.json()) as MonoclePolicyDecision;
+	// Validate the shape rather than trusting the cast: an unexpected-but-2xx
+	// body would otherwise read `allowed: undefined` (falsy) and hard-BLOCK the
+	// visitor, while an outright API failure fails open. Throwing here routes a
+	// malformed success through the same fail-open handling as other errors.
+	const decision = (await response.json().catch(() => null)) as MonoclePolicyDecision | null;
+	if (decision === null || typeof decision !== 'object' || typeof decision.allowed !== 'boolean') {
+		throw new MonocleAPIError(response.status, 'malformed policy response');
+	}
+	return decision;
 }

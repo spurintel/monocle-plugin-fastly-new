@@ -1,15 +1,16 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { setSecureCookie, validateCookie, parseCookies } from '../src/cookies';
 import { COOKIE_NAME } from '../src/constants';
 import type { MonocleConfig } from '../src/config';
 
 const config = {
-	cookieSecretValue: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+	getCookieSecret: async () =>
+		'0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
 } as MonocleConfig;
 
 function cookieFromSetCookie(headers: Headers): string {
 	const setCookie = headers.get('Set-Cookie')!;
-	// e.g. "MCLVALID=<iv>.<ct>; Secure; HttpOnly; Path=/; SameSite=Lax"
+	// e.g. "MCLVALID=<payloadHex>.<signatureHex>; Secure; HttpOnly; Path=/; SameSite=Lax"
 	return setCookie.split(';')[0];
 }
 
@@ -22,7 +23,7 @@ describe('parseCookies', () => {
 	});
 });
 
-describe('cookie round-trip (AES-GCM)', () => {
+describe('cookie round-trip (HMAC)', () => {
 	it('issues a cookie that validates for the same IP', async () => {
 		const ip = '203.0.113.7';
 		const headers = await setSecureCookie(ip, config);
@@ -48,5 +49,26 @@ describe('cookie round-trip (AES-GCM)', () => {
 
 	it('returns false when no cookie is present', async () => {
 		expect(await validateCookie(null, '203.0.113.7', config)).toBe(false);
+	});
+
+	it('rejects an expired cookie', async () => {
+		const headers = await setSecureCookie('203.0.113.7', config);
+		const cookie = cookieFromSetCookie(headers);
+		// Jump past the 1-hour expiry.
+		vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3601 * 1000);
+		try {
+			expect(await validateCookie(cookie, '203.0.113.7', config)).toBe(false);
+		} finally {
+			vi.restoreAllMocks();
+		}
+	});
+
+	it('issues an IP-unbound cookie when no client IP is available, which still validates', async () => {
+		const headers = await setSecureCookie(null, config);
+		const cookie = cookieFromSetCookie(headers);
+
+		// The cookie must not be permanently invalid: it validates for any IP.
+		expect(await validateCookie(cookie, '203.0.113.7', config)).toBe(true);
+		expect(await validateCookie(cookie, null, config)).toBe(true);
 	});
 });

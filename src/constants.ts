@@ -16,3 +16,17 @@ export const SECRET_STORE_NAME = 'monocle_secrets';
 // Host for the Monocle Policy API. Note the `decrypt.` prefix: the backend
 // SDK targets `https://decrypt.<baseDomain>/api/v1/policy`.
 export const POLICY_API_URL = 'https://decrypt.mcl.spur.us/api/v1/policy';
+
+// Header carrying the chaining shared secret. Kept for guards pasted into
+// customer Compute services before the signed header below existed; those
+// still compare this static value, so it must keep being sent.
+export const CHAIN_SECRET_HEADER = 'X-Monocle-Chain-Secret';
+
+// Header carrying the time-limited chaining signature:
+// "<unix seconds>.0x<hmac-sha256 hex>", where the HMAC is keyed with the shared
+// secret over the timestamp. Current guards validate THIS (not the static
+// secret), so a captured header only replays for a few minutes instead of
+// working forever. Format must match the guard snippets built by the web app
+// (web/apps/app/src/lib/fastly/chaining.ts) and Fastly VCL's
+// digest.hmac_sha256 output (0x-prefixed lowercase hex).
+export const CHAIN_AUTH_HEADER = 'X-Monocle-Chain-Auth';
