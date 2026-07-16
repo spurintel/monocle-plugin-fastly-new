@@ -247,9 +247,8 @@ function buildBlockResponse(config: MonocleConfig): Response {
 <head>
   <meta charset="utf-8">
   <title>${title}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet"/>
   <style>
-    body{font-family:"Inter",sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#fff;color:#000}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#fff;color:#000}
     .container{text-align:center;max-width:500px;padding:2rem}
     h1{font-size:1.3rem;font-weight:300;margin:0}
     p{color:#6b7280}
