@@ -65,15 +65,16 @@ function parseBlockType(raw: string | undefined): 'redirect' | 'html' | undefine
 }
 
 /**
- * Clamps the block status to a valid HTTP code, returning undefined (so the
- * builder falls back to 403) for anything out of range. Doing it here means an
- * out-of-range value can never reach `new Response` and throw the block path
- * into the verify catch's fail-open.
+ * Clamps the block status to a 4xx/5xx error code, returning undefined (so the
+ * builder falls back to 403) otherwise. Doing it here means an out-of-range
+ * value can never reach `new Response` and throw the block path into the verify
+ * catch's fail-open. A 2xx is rejected too: the interstitial treats an `ok`
+ * response as success and reloads, looping instead of showing the block page.
  */
 function parseBlockStatus(raw: string | undefined): number | undefined {
 	if (raw === undefined) return undefined;
 	const n = parseInt(raw, 10);
-	return n >= 200 && n <= 599 ? n : undefined;
+	return n >= 400 && n <= 599 ? n : undefined;
 }
 
 async function secret(store: SecretStore, key: string): Promise<string> {

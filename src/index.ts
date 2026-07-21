@@ -201,18 +201,18 @@ async function validateWithPolicyApi(
 		return new Response('Captcha validated successfully', { status: 200, headers });
 	} catch (error: unknown) {
 		const message = error instanceof Error ? error.message : String(error);
-		// A 4xx (other than 404) means the API is REACHABLE and rejected THIS
-		// request (undecryptable/invalid assessment, or a bad SECRET_KEY). Never
-		// mint a cookie on that: it would wave through attackers POSTing junk and
-		// silently disable the challenge site-wide on a misconfigured key. Deny,
-		// so a systemic auth failure surfaces loudly instead of failing open.
-		// 404 = no policy configured, which legitimately means "allow", so it
-		// stays fail-open below.
+		// A 4xx (other than the transient ones below) means the API is REACHABLE
+		// and rejected THIS request (undecryptable/invalid assessment, or a bad
+		// SECRET_KEY). Never mint a cookie on that: it would wave through attackers
+		// POSTing junk and silently disable the challenge site-wide on a
+		// misconfigured key. Deny, so a systemic auth failure surfaces loudly.
+		// 404 (no policy = allow), 408 (request timeout) and 429 (rate limited)
+		// are transient/expected, so they stay fail-open below.
 		if (
 			error instanceof MonocleAPIError &&
 			error.status >= 400 &&
 			error.status < 500 &&
-			error.status !== 404
+			![404, 408, 429].includes(error.status)
 		) {
 			console.error(`Policy API rejected the request (status ${error.status}); denying.`);
 			return config.blockResponseType
@@ -240,13 +240,13 @@ async function validateWithPolicyApi(
 
 /**
  * A block-redirect target is customer config, but must still be a plain http(s)
- * URL with no header-splitting bytes: a `javascript:`/`data:` value would run in
- * the interstitial's `location.href`, and a CR/LF would make `new Response`
- * throw, routing a would-be block through the verify catch's fail-open. An
- * unsafe value falls back to the HTML block page instead.
+ * URL with no control bytes: a `javascript:`/`data:` value would run in the
+ * interstitial's `location.href`, and any control byte (NUL, CR, LF) would make
+ * `new Response` throw on the header, routing a would-be block through the
+ * verify catch's fail-open. An unsafe value falls back to the HTML block page.
  */
 function isSafeRedirectUrl(url: string): boolean {
-	if (/[\r\n\t]/.test(url)) return false;
+	if (/[\u0000-\u001f\u007f]/.test(url)) return false;
 	try {
 		const parsed = new URL(url);
 		return parsed.protocol === 'http:' || parsed.protocol === 'https:';

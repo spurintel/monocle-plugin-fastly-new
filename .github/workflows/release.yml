@@ -5,6 +5,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
@@ -28,11 +31,13 @@ jobs:
         # js-compute-runtime, producing bin/main.wasm.
         run: npm run build
 
-      - name: Package Wasm into a Compute tarball
-        # `fastly compute pack` wraps a precompiled Wasm binary into the
-        # package tar.gz that the deploy API (PUT .../package) expects.
+      - name: Set up the Fastly CLI
         uses: fastly/compute-actions/setup@v5
-      - run: fastly compute pack --wasm-binary bin/main.wasm
+
+      - name: Package Wasm into a Compute tarball
+        # `fastly compute pack` wraps the precompiled Wasm binary into the
+        # package tar.gz that the deploy API (PUT .../package) expects.
+        run: fastly compute pack --wasm-binary bin/main.wasm
 
       - name: Create GitHub Release and upload package
         uses: softprops/action-gh-release@v2
