@@ -4,13 +4,15 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Checking Connection...</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet" />
+    <!-- Warm up the connection to Spur so mcl.js + the assessment start sooner. -->
+    <link rel="preconnect" href="https://mcl.spur.us" crossorigin />
+    <link rel="dns-prefetch" href="https://mcl.spur.us" />
     <style>
         body,
         html {
             height: 100%;
             margin: 0;
-            font-family: "Inter";
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -118,7 +120,7 @@
 
 <body>
     <div class="center-div">
-        <a href="https://spur.us/platform/session-enrichment" target="_blank" referrerpolicy="none">
+        <a href="https://spur.us/platform/session-enrichment" target="_blank" referrerpolicy="no-referrer">
             <div class="spur-logo">
                 <svg width="103" height="31" viewBox="0 0 103 31" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M19.7852 0C20.1147 5.07404 20.293 10.1515 20.293 15.2256C20.293 20.2996 20.114 25.3742 19.7852 30.4482H18.7705C18.4517 25.3742 18.2627 20.2996 18.2627 15.2256C18.2627 10.1515 18.4517 5.07404 18.7705 0H19.7852ZM15.7314 13.6963C16.0219 14.1289 16.2379 14.6054 16.2393 15.1055C16.2378 15.6054 16.0219 16.0541 15.7314 16.4873L8.12012 27.3975H7.10449C7.11677 27.3747 12.4345 17.501 13.4482 16.9941V16.2334C11.9258 16.2334 0 15.7256 0 15.7256V14.7109C0 14.7109 11.9258 14.2031 13.4482 14.2031V13.4424C12.4333 12.4274 7.10449 3.03906 7.10449 3.03906H8.12012L15.7314 13.6963ZM31.46 3.03906C31.46 3.03906 26.1312 12.4274 25.1162 13.4424V14.2031C26.6386 14.2031 38.5645 14.7109 38.5645 14.7109V15.7256C38.5645 15.7256 26.6386 16.2334 25.1162 16.2334V16.9941C26.1301 18.008 31.4485 27.3772 31.46 27.3975H30.4443L22.833 16.4873C22.5426 16.0541 22.3266 15.6054 22.3252 15.1055C22.3265 14.6055 22.5425 14.1289 22.833 13.6963L30.4443 3.03906H31.46Z" fill="currentColor"/>
@@ -132,9 +134,9 @@
         <h1 class="loading" id="connectionStatus">Testing your connection</h1>
         <div class="terms">
             See our
-            <a href="https://spur.us/terms" target="_blank" referrerpolicy="none">Terms</a>
+            <a href="https://spur.us/terms" target="_blank" referrerpolicy="no-referrer">Terms</a>
             and
-            <a href="https://spur.us/privacy" target="_blank" referrerpolicy="none">Privacy Policy</a>
+            <a href="https://spur.us/privacy" target="_blank" referrerpolicy="no-referrer">Privacy Policy</a>
         </div>
     </div>
     <script>
@@ -175,7 +177,7 @@
                         return;
                     }
 
-                    // Check for a configured block action from the worker.
+                    // Check for a configured block action from the Monocle plugin.
                     const blockAction = response.headers.get('X-Block-Action');
 
                     if (blockAction && blockAction.startsWith('redirect:')) {

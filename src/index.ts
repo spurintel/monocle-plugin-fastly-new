@@ -1,9 +1,9 @@
 /// <reference types="@fastly/js-compute" />
 import { CacheOverride } from 'fastly:cache-override';
 import { buildChainAuthHeader } from './chainAuth';
-import { CHAIN_AUTH_HEADER, CHAIN_SECRET_HEADER, COOKIE_NAME, ORIGIN_BACKEND, POLICY_BACKEND } from './constants';
+import { CHAIN_AUTH_HEADER, CHAIN_SECRET_HEADER, ORIGIN_BACKEND, POLICY_BACKEND } from './constants';
 import { loadConfig, type CacheRule, type MonocleConfig } from './config';
-import { parseCookies, validateCookie, setSecureCookie } from './cookies';
+import { validateCookie, setSecureCookie } from './cookies';
 import { escapeHtml } from './escape';
 import { isProtectedPath } from './paths';
 import { evaluateAssessment, MonocleAPIError } from './policy';
@@ -27,45 +27,48 @@ async function handleRequest(event: FetchEvent): Promise<Response> {
 	const url = new URL(request.url);
 	const config = loadConfig();
 
-	// If the request is for the configured redirect block page itself, pass it
-	// straight through to the origin so the page can be served without triggering
-	// the captcha. This makes same-domain block pages work with wildcard routes.
+	// Serve the configured redirect block page itself without a challenge, so
+	// same-domain block pages work even under wildcard routes.
 	if (config.blockResponseType === 'redirect' && config.blockRedirectUrl) {
 		try {
 			const blockUrl = new URL(config.blockRedirectUrl);
 			if (blockUrl.hostname === url.hostname && blockUrl.pathname === url.pathname) {
-				return proxyToOrigin(request, config, clientIp);
+				return proxyToOrigin(request, config, url, clientIp);
 			}
 		} catch {
 			// Invalid BLOCK_REDIRECT_URL, ignore and continue normal processing.
 		}
 	}
 
-	// The captcha page POSTs back to the same URL it was served from, with this
-	// sentinel header. This guarantees the plugin always intercepts the validation
-	// request regardless of the configured route pattern.
+	// The captcha page POSTs back to its own URL with this sentinel header, so
+	// the plugin intercepts validation regardless of the configured route pattern.
 	if (request.method === 'POST' && request.headers.get('X-MCL-Validate') === '1') {
 		return validateWithPolicyApi(request, clientIp, config);
 	}
 
-	// Path scoping: only requests matching the configured path patterns are
-	// challenged; everything else passes straight through to the origin. (Fastly
-	// attaches whole domains to a service, so unlike Cloudflare routes the
-	// filtering happens here rather than at the routing layer.)
+	// Path scoping: only matching paths are challenged; the rest proxy straight
+	// through. Fastly attaches whole domains to a service (no Cloudflare-style
+	// route filtering), so the scoping must live here in the Compute bundle.
 	if (!isProtectedPath(url.hostname, url.pathname, config.protectedPaths)) {
-		return proxyToOrigin(request, config, clientIp);
+		return proxyToOrigin(request, config, url, clientIp);
 	}
 
-	const cookies = parseCookies(request.headers.get('Cookie'));
-
-	if (cookies[COOKIE_NAME] && (await validateCookie(request.headers.get('Cookie'), clientIp, config))) {
-		return proxyToOrigin(request, config, clientIp);
+	// Single header read: validateCookie already fails fast on a missing cookie
+	// (before any Secret Store read), so no separate presence parse is needed.
+	const cookieHeader = request.headers.get('Cookie');
+	if (cookieHeader && (await validateCookie(cookieHeader, clientIp, config))) {
+		return proxyToOrigin(request, config, url, clientIp);
 	}
 
+	// Function replacements, NOT strings: string args treat `$&`, `$1`, `$$` as
+	// special patterns, so a URL containing `$` (e.g. an OData `?$filter=` query)
+	// would be corrupted in the redirect target, trapping the visitor in a
+	// challenge loop. A function replacement inserts the value literally.
+	const redirectJson = JSON.stringify(url.href);
 	return new Response(
 		captcha
-			.replace('PUBLISHABLE_KEY', config.publishableKey)
-			.replaceAll('REPLACE_REDIRECT', JSON.stringify(url.href)),
+			.replace('PUBLISHABLE_KEY', () => config.publishableKey)
+			.replaceAll('REPLACE_REDIRECT', () => redirectJson),
 		{
 			headers: {
 				'Content-Type': 'text/html',
@@ -79,9 +82,11 @@ async function handleRequest(event: FetchEvent): Promise<Response> {
 }
 
 /**
- * Picks the cache override for a request from the cloned prefix rules. Returns
- * undefined when no rule matches, which leaves Fastly's default readthrough
- * caching (honour the origin's own cache headers) in place.
+ * Picks the cache override from the cloned prefix rules; undefined means no
+ * match, leaving Fastly's default readthrough caching (honour origin headers).
+ * First match wins, so the web app that builds these rules must list
+ * more-specific prefixes first (`/api/static` before `/api` before `/`), or
+ * the broader rule shadows the narrower one.
  */
 function cacheOverrideFor(pathname: string, rules: CacheRule[]): CacheOverride | undefined {
 	const rule = rules.find(r => pathname.startsWith(r.prefix));
@@ -96,43 +101,38 @@ function cacheOverrideFor(pathname: string, rules: CacheRule[]): CacheOverride |
 /**
  * Proxies the incoming request to the customer's origin via the ORIGIN backend.
  *
- * The inbound request's Host is the PROTECTED domain (e.g. www.example.com),
- * which points back at this Monocle service. Replaying it verbatim makes an
- * origin that routes by Host (a CDN, or any host-based vhost) send the request
- * straight back to us, an infinite loop that surfaces as a 502. Fastly's
- * backend `override_host` does not fix this because the guest's explicit Host
- * header wins, so we rewrite the outbound Host ourselves to the configured
- * origin host. An empty/undefined `originHost` means "forward the visitor's
- * Host unchanged" (faithful mode, where the origin expects it).
+ * The inbound Host is the PROTECTED domain, which points back at this service:
+ * replayed verbatim, a host-routing origin (CDN, host-based vhost) sends the
+ * request straight back to us, an infinite loop surfacing as a 502. Backend
+ * `override_host` does not fix this because the guest's explicit Host header
+ * wins, so we rewrite the outbound Host ourselves. Empty/undefined `originHost`
+ * means "forward the visitor's Host unchanged" (faithful mode).
  *
- * `clientIp` is the real visitor's address (`event.client.address`). We forward
- * it explicitly because Fastly Compute (unlike VCL) does not add client-IP
- * headers to backend requests automatically. Without this, a chained downstream
- * Fastly service (or any origin) would see Monocle's egress IP instead of the
+ * `clientIp` (`event.client.address`) is forwarded explicitly because Compute,
+ * unlike VCL, adds no client-IP headers to backend requests. Without it, a
+ * chained Fastly service or the origin sees Monocle's egress IP instead of the
  * visitor, breaking bot verification and per-IP rate limiting on that hop.
  */
 async function proxyToOrigin(
 	request: Request,
 	config: MonocleConfig,
+	url: URL,
 	clientIp: string | null
 ): Promise<Response> {
 	try {
-		// Always rebuild the outbound request so its headers are mutable: we set the
-		// forwarded client IP on every proxied request, plus the origin Host and
-		// chaining secret where configured.
-		const url = new URL(request.url);
+		// Rebuild the outbound request so its headers are mutable. Mutating the
+		// caller's already-parsed `url` is safe (every caller returns immediately
+		// after this) and avoids a second URL parse per proxied request.
 		if (config.originHost) url.hostname = config.originHost;
 		const originRequest = new Request(url.toString(), request);
 		if (config.originHost) originRequest.headers.set('host', config.originHost);
 
-		// Forward the real visitor IP so downstream identifies the true client, not
-		// this proxy hop. We OVERWRITE X-Forwarded-For rather than appending:
-		// Monocle is the edge trust boundary, so any inbound XFF is client-supplied
-		// and untrusted: propagating it would let a visitor spoof its apparent IP
-		// and defeat the downstream rate limiting this is meant to protect. When
-		// chaining, the next Fastly service re-stamps Fastly-Client-IP at its own
-		// ingress, so XFF's leftmost entry is what actually survives to it;
-		// Fastly-Client-IP mainly serves a non-Fastly origin in simple mode.
+		// OVERWRITE X-Forwarded-For, never append: Monocle is the edge trust
+		// boundary, so inbound XFF is client-supplied and propagating it would let
+		// a visitor spoof its IP past downstream rate limiting. When chaining, the
+		// next Fastly hop re-stamps Fastly-Client-IP at its own ingress, so XFF's
+		// leftmost entry is what survives; Fastly-Client-IP mainly serves a
+		// non-Fastly origin in simple mode.
 		if (clientIp) {
 			originRequest.headers.set('X-Forwarded-For', clientIp);
 			originRequest.headers.set('Fastly-Client-IP', clientIp);
@@ -143,14 +143,12 @@ async function proxyToOrigin(
 			originRequest.headers.delete('Fastly-Client-IP');
 		}
 
-		// The chaining header is Monocle's to assert, never the client's: always
-		// strip any inbound value (including the legacy static-secret header) so a
-		// visitor-supplied header can't flow through to the origin in simple mode,
-		// then set the time-limited signature when chaining to prove to the
-		// customer's existing service that this request came through Monocle.
-		// Only the signed header is sent: the guards Monocle generates validate it,
-		// and unlike the old static secret a captured value expires in minutes
-		// rather than allowing an indefinite replay.
+		// Chaining headers are Monocle's to assert, never the client's: strip any
+		// inbound value (including the legacy static-secret header), then set the
+		// time-limited signature when chaining so the customer's existing service
+		// can verify the request came through Monocle. Unlike the old static
+		// secret, a captured signature expires in minutes instead of replaying
+		// forever.
 		originRequest.headers.delete(CHAIN_SECRET_HEADER);
 		originRequest.headers.delete(CHAIN_AUTH_HEADER);
 		if (config.chainSecret) {
@@ -203,14 +201,31 @@ async function validateWithPolicyApi(
 		return new Response('Captcha validated successfully', { status: 200, headers });
 	} catch (error: unknown) {
 		const message = error instanceof Error ? error.message : String(error);
-		if (!(error instanceof MonocleAPIError && error.status === 404)) {
-			console.error(`Policy API error, failing open: ${message}`);
+		// A 4xx (other than 404) means the API is REACHABLE and rejected THIS
+		// request (undecryptable/invalid assessment, or a bad SECRET_KEY). Never
+		// mint a cookie on that: it would wave through attackers POSTing junk and
+		// silently disable the challenge site-wide on a misconfigured key. Deny,
+		// so a systemic auth failure surfaces loudly instead of failing open.
+		// 404 = no policy configured, which legitimately means "allow", so it
+		// stays fail-open below.
+		if (
+			error instanceof MonocleAPIError &&
+			error.status >= 400 &&
+			error.status < 500 &&
+			error.status !== 404
+		) {
+			console.error(`Policy API rejected the request (status ${error.status}); denying.`);
+			return config.blockResponseType
+				? buildBlockResponse(config)
+				: new Response('Blocked', { status: 403 });
 		}
-		// Fail open on ANY policy API failure (404 = no policy configured; anything
-		// else = the API is unreachable/degraded), and CRITICALLY set the cookie:
-		// a 200 without the cookie sends the visitor back to the page still
-		// cookieless, where they are re-challenged and re-fail, an infinite
-		// challenge loop for as long as the API is down rather than fail-open.
+		if (!(error instanceof MonocleAPIError && error.status === 404)) {
+			console.error(`Validation failed, failing open: ${message}`);
+		}
+		// Genuine outage (network error, timeout, 5xx), no policy (404), or a
+		// malformed 2xx body: fail open and CRITICALLY set the cookie. A 200
+		// without it sends the visitor back cookieless into an endless
+		// re-challenge loop for as long as the API is down.
 		try {
 			const headers = await setSecureCookie(clientIp, config);
 			return new Response('Captcha validated successfully', { status: 200, headers });
@@ -224,6 +239,23 @@ async function validateWithPolicyApi(
 }
 
 /**
+ * A block-redirect target is customer config, but must still be a plain http(s)
+ * URL with no header-splitting bytes: a `javascript:`/`data:` value would run in
+ * the interstitial's `location.href`, and a CR/LF would make `new Response`
+ * throw, routing a would-be block through the verify catch's fail-open. An
+ * unsafe value falls back to the HTML block page instead.
+ */
+function isSafeRedirectUrl(url: string): boolean {
+	if (/[\r\n\t]/.test(url)) return false;
+	try {
+		const parsed = new URL(url);
+		return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+	} catch {
+		return false;
+	}
+}
+
+/**
  * Builds the block response based on config.
  * Sets X-Block-Action header so the captcha page JS can handle it correctly:
  *   - "redirect:<url>" -> captcha JS navigates window.location
@@ -231,14 +263,19 @@ async function validateWithPolicyApi(
  * Falls back to a plain 403 if blockResponseType is not set.
  */
 function buildBlockResponse(config: MonocleConfig): Response {
-	if (config.blockResponseType === 'redirect' && config.blockRedirectUrl) {
+	if (
+		config.blockResponseType === 'redirect' &&
+		config.blockRedirectUrl &&
+		isSafeRedirectUrl(config.blockRedirectUrl)
+	) {
 		return new Response(null, {
 			status: 403,
 			headers: { 'X-Block-Action': `redirect:${config.blockRedirectUrl}` },
 		});
 	}
 
-	const statusCode = parseInt(config.blockStatusCode ?? '403', 10) || 403;
+	// Already parsed and clamped in loadConfig; 403 when unset.
+	const statusCode = config.blockStatusCode ?? 403;
 	const title = escapeHtml(config.blockPageTitle ?? 'Access Denied');
 	const body = escapeHtml(config.blockResponseBody ?? 'This request has been blocked');
 

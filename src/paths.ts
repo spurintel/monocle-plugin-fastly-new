@@ -33,17 +33,44 @@ export function matchesPathPattern(pathname: string, pattern: string): boolean {
 }
 
 /**
- * Canonicalises a pathname for scoping: percent-decode once, then lower-case, so
- * a request can't slip past a scoped pattern with `/%61dmin` or `/ADMIN` when the
- * origin would canonicalise it back to a protected path. Best-effort: malformed
- * encoding is matched as-is (still lower-cased) rather than throwing.
+ * Collapses `.` and `..` segments (RFC 3986 style), preserving the leading and
+ * trailing slash. Applied AFTER decoding so an ENCODED traversal (`/a/%2e%2e/admin`
+ * -> `/a/../admin` -> `/admin`) can't slip past a scoped pattern that the origin
+ * would itself resolve to a protected path. `..` never climbs above the root.
+ */
+function collapseDotSegments(path: string): string {
+	const leadingSlash = path.startsWith('/');
+	const trailingSlash = path.length > 1 && path.endsWith('/');
+	const out: string[] = [];
+	for (const seg of path.split('/')) {
+		if (seg === '' || seg === '.') continue;
+		if (seg === '..') {
+			out.pop();
+			continue;
+		}
+		out.push(seg);
+	}
+	let result = out.join('/');
+	if (leadingSlash) result = `/${result}`;
+	if (trailingSlash && out.length > 0) result += '/';
+	return result || (leadingSlash ? '/' : '');
+}
+
+/**
+ * Canonicalises a pathname for scoping: percent-decode once, collapse dot-segments,
+ * then lower-case, so a request can't slip past a scoped pattern by re-casing
+ * (`/ADMIN`), percent-encoding (`/%61dmin`), or traversal-obfuscating (`/x/%2e%2e/admin`)
+ * a URL the origin would resolve to a protected path. Best-effort: malformed
+ * encoding is matched as-is (still collapsed and lower-cased) rather than throwing.
  */
 function canonicalisePath(pathname: string): string {
+	let decoded: string;
 	try {
-		return decodeURIComponent(pathname).toLowerCase();
+		decoded = decodeURIComponent(pathname);
 	} catch {
-		return pathname.toLowerCase();
+		decoded = pathname;
 	}
+	return collapseDotSegments(decoded).toLowerCase();
 }
 
 /**

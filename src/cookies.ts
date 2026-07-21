@@ -1,19 +1,6 @@
 import { COOKIE_NAME } from './constants';
 import type { MonocleConfig } from './config';
 
-export function parseCookies(header: string | null): Record<string, string> {
-	const list: Record<string, string> = {};
-	if (!header) return list;
-	header.split(';').forEach(cookie => {
-		let [name, ...rest] = cookie.split('=');
-		name = name?.trim();
-		if (name) {
-			list[name] = rest.join('=').trim();
-		}
-	});
-	return list;
-}
-
 /**
  * The cookie payload (`<clientIp>|<expiryUnixSeconds>`) is not secret; it only
  * needs to be tamper-proof so a client cannot forge or extend it. We therefore
@@ -35,27 +22,29 @@ async function importHmacKey(hexSecret: string): Promise<CryptoKey> {
 }
 
 /**
- * Issues a signed cookie binding the client IP and a 1-hour expiry.
- * The client IP comes from the Compute request context (event.client.address).
- *
- * If no client IP is available (which should essentially never happen), the
- * cookie is issued WITHOUT an IP binding rather than bound to a literal
- * unmatchable value: a cookie that can never validate would trap that visitor
- * in an endless challenge loop. The signature and expiry still apply.
+ * Issues a signed cookie binding the client IP (event.client.address) with a
+ * 1-hour expiry. If no client IP is available (rare), the cookie is issued
+ * WITHOUT an IP binding rather than bound to an unmatchable value: a cookie
+ * that can never validate would trap the visitor in an endless challenge
+ * loop. Signature and expiry still apply.
  */
 export async function setSecureCookie(clientIp: string | null, config: MonocleConfig): Promise<Headers> {
 	if (!clientIp) {
 		console.error('No client IP available on the request context; issuing an IP-unbound cookie.');
 	}
 	const expiryTime = Math.floor(Date.now() / 1000) + 3600;
-	const payload = `${clientIp ?? ''}|${expiryTime}`;
+	const payloadBytes = new TextEncoder().encode(`${clientIp ?? ''}|${expiryTime}`);
 
 	const key = await importHmacKey(await config.getCookieSecret());
-	const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
+	const signature = await crypto.subtle.sign('HMAC', key, payloadBytes);
 
-	const cookieValue = `${bufToHex(new TextEncoder().encode(payload))}.${bufToHex(new Uint8Array(signature))}`;
+	const cookieValue = `${bufToHex(payloadBytes)}.${bufToHex(new Uint8Array(signature))}`;
 
 	const headers = new Headers();
+	// Intentionally a session cookie (no Max-Age/Expires): the signed payload's
+	// own expiry is the authority, and the browser dropping it on restart just
+	// triggers a fresh challenge. Keeping it session-scoped also stops a
+	// shared/kiosk browser from carrying a verified session across users.
 	headers.append(
 		'Set-Cookie',
 		`${COOKIE_NAME}=${cookieValue}; Secure; HttpOnly; Path=/; SameSite=Lax`
@@ -128,7 +117,13 @@ function bufToHex(buffer: Uint8Array): string {
 }
 
 function hexToBuf(hex: string): Uint8Array {
-	const matches = hex.match(/.{1,2}/g);
-	if (!matches) return new Uint8Array();
-	return new Uint8Array(matches.map(byte => parseInt(byte, 16)));
+	// Reject odd-length or non-hex input rather than coercing a trailing nibble or
+	// non-hex chars into bytes: an empty buffer fails the HMAC check and
+	// re-challenges. Valid secrets and payloads are always even-length hex.
+	if (hex.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(hex)) return new Uint8Array();
+	const bytes = new Uint8Array(hex.length / 2);
+	for (let i = 0; i < bytes.length; i++) {
+		bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+	}
+	return bytes;
 }

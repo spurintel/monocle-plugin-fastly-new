@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { setSecureCookie, validateCookie, parseCookies } from '../src/cookies';
+import { setSecureCookie, validateCookie } from '../src/cookies';
 import { COOKIE_NAME } from '../src/constants';
 import type { MonocleConfig } from '../src/config';
 
@@ -13,15 +13,6 @@ function cookieFromSetCookie(headers: Headers): string {
 	// e.g. "MCLVALID=<payloadHex>.<signatureHex>; Secure; HttpOnly; Path=/; SameSite=Lax"
 	return setCookie.split(';')[0];
 }
-
-describe('parseCookies', () => {
-	it('parses a cookie header into name/value pairs', () => {
-		expect(parseCookies('a=1; b=2')).toEqual({ a: '1', b: '2' });
-	});
-	it('returns empty for null', () => {
-		expect(parseCookies(null)).toEqual({});
-	});
-});
 
 describe('cookie round-trip (HMAC)', () => {
 	it('issues a cookie that validates for the same IP', async () => {

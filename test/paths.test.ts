@@ -67,6 +67,18 @@ describe('isProtectedPath', () => {
 		expect(isProtectedPath('www.example.com', '/checkout/%70ay', paths)).toBe(true);
 	});
 
+	it('cannot be evaded by encoded dot-segment traversal', () => {
+		// /x/%2e%2e/checkout/pay decodes to /x/../checkout/pay, which an origin
+		// resolves to /checkout/pay (protected); collapsing dot-segments keeps the
+		// challenge applied. Literal ../ (already normalised by new URL in prod) is
+		// covered too for completeness.
+		expect(isProtectedPath('www.example.com', '/x/%2e%2e/checkout/pay', paths)).toBe(true);
+		expect(isProtectedPath('www.example.com', '/x/../checkout/pay', paths)).toBe(true);
+		// A traversal that resolves OUT of a protected prefix is correctly not
+		// protected, matching what the origin would actually serve (/).
+		expect(isProtectedPath('www.example.com', '/checkout/%2e%2e/', paths)).toBe(false);
+	});
+
 	it('matches case-insensitively when the configured pattern is upper-cased', () => {
 		expect(isProtectedPath('www.example.com', '/admin/x', { 'www.example.com': ['/ADMIN/*'] })).toBe(
 			true,

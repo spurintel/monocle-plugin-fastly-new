@@ -47,9 +47,10 @@ export interface MonocleConfig {
 	 * routes "/*") means every path on every domain is protected.
 	 */
 	protectedPaths?: Record<string, string[]>;
-	blockResponseType?: string;
+	blockResponseType?: 'redirect' | 'html';
 	blockRedirectUrl?: string;
-	blockStatusCode?: string;
+	/** Parsed and clamped to 200-599 here; the block builder defaults to 403. */
+	blockStatusCode?: number;
 	blockPageTitle?: string;
 	blockResponseBody?: string;
 }
@@ -57,6 +58,22 @@ export interface MonocleConfig {
 function optional(store: ConfigStore, key: string): string | undefined {
 	const value = store.get(key);
 	return value === null || value === '' ? undefined : value;
+}
+
+function parseBlockType(raw: string | undefined): 'redirect' | 'html' | undefined {
+	return raw === 'redirect' || raw === 'html' ? raw : undefined;
+}
+
+/**
+ * Clamps the block status to a valid HTTP code, returning undefined (so the
+ * builder falls back to 403) for anything out of range. Doing it here means an
+ * out-of-range value can never reach `new Response` and throw the block path
+ * into the verify catch's fail-open.
+ */
+function parseBlockStatus(raw: string | undefined): number | undefined {
+	if (raw === undefined) return undefined;
+	const n = parseInt(raw, 10);
+	return n >= 200 && n <= 599 ? n : undefined;
 }
 
 async function secret(store: SecretStore, key: string): Promise<string> {
@@ -91,9 +108,9 @@ export function loadConfig(): MonocleConfig {
 		chainSecret: optional(config, 'CHAIN_SECRET'),
 		cacheRules: parseCacheRules(optional(config, 'CACHE_RULES')),
 		protectedPaths: parseProtectedPaths(optional(config, 'PROTECTED_PATHS')),
-		blockResponseType: optional(config, 'BLOCK_RESPONSE_TYPE'),
+		blockResponseType: parseBlockType(optional(config, 'BLOCK_RESPONSE_TYPE')),
 		blockRedirectUrl: optional(config, 'BLOCK_REDIRECT_URL'),
-		blockStatusCode: optional(config, 'BLOCK_STATUS_CODE'),
+		blockStatusCode: parseBlockStatus(optional(config, 'BLOCK_STATUS_CODE')),
 		blockPageTitle: optional(config, 'BLOCK_PAGE_TITLE'),
 		blockResponseBody: optional(config, 'BLOCK_RESPONSE_BODY'),
 		getSecretKey: () => (secretKey ??= secret(secrets, 'SECRET_KEY')),
