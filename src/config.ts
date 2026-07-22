@@ -49,7 +49,7 @@ export interface MonocleConfig {
 	protectedPaths?: Record<string, string[]>;
 	blockResponseType?: 'redirect' | 'html';
 	blockRedirectUrl?: string;
-	/** Parsed and clamped to 200-599 here; the block builder defaults to 403. */
+	/** Parsed and clamped to a 4xx/5xx code here; the block builder defaults to 403. */
 	blockStatusCode?: number;
 	blockPageTitle?: string;
 	blockResponseBody?: string;
